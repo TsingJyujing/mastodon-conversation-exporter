@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "mastodon-conversation-exporter"
+version = "0.1.0"
+description = ""
+authors = ["Yuan Yifan <nigel434@gmail.com>"]
+license = "GPL3"
+
+[tool.poetry.dependencies]
+python = "^3.7"
+fastapi = "^0.62.0"
+uvicorn = "^0.12.3"
+"Mastodon.py" = "^1.5.1"
+BeautifulSoup4 = "^4.9.3"
+numpy = "^1.19.4"
+aiofiles = "^0.6.0"
+markdown = "^3.3.3"
+
+[tool.poetry.dev-dependencies]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

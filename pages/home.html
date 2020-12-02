@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Mastodon Conversation Exporter</title>
+    <link rel="stylesheet" href="static/bootstrap.min.css"/>
+    <script src="static/jquery.min.js"></script>
+    <script src="static/bootstrap.min.js"></script>
+    <script src="static/echarts.min.js"></script>
+    <style>
+        .debug {
+            background-color: lightblue;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="py-5 text-center">
+        <h1>
+            <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-bar-chart-steps" fill="currentColor"
+                 xmlns="http://www.w3.org/2000/svg">
+                <path fill-rule="evenodd" d="M.5 0a.5.5 0 0 1 .5.5v15a.5.5 0 0 1-1 0V.5A.5.5 0 0 1 .5 0z"/>
+                <rect width="5" height="2" x="2" y="1" rx=".5"/>
+                <rect width="8" height="2" x="4" y="5" rx=".5"/>
+                <path d="M6 9.5a.5.5 0 0 1 .5-.5h6a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-6a.5.5 0 0 1-.5-.5v-1zm2 4a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-7a.5.5 0 0 1-.5-.5v-1z"/>
+            </svg>
+            Mastodon Conversation Exporter
+        </h1>
+        <p>
+            Some discussion (actually quarrel) on Mastodon is too long to read, this project is for exporting and doing
+            some simple visualization the conversation on Mastodon.
+        </p>
+    </div>
+    <div class="row">
+        <div class="col-md-8 order-md-1">
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="status-url">Status URL</label>
+                    <input type="text" class="form-control" id="status-url" placeholder="Input Status URL"
+                           value=""
+                           required="">
+                    <div class="invalid-feedback">
+                        Valid access token is required.
+                    </div>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label for="access-token">Access Token</label>
+                    <input type="text" class="form-control" id="access-token" placeholder="Input Access Token"
+                           value=""
+                           required="">
+                    <div class="invalid-feedback">
+                        Valid access token is required.
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-12">
+                    <button class="btn btn-primary">Export JSON</button>
+                    <button class="btn btn-primary">Export Markdown</button>
+                    <button class="btn btn-primary">Export HTML</button>
+                    <button class="btn btn-primary" onclick="visualize_tree()">Visualize Tree</button>
+                </div>
+            </div>
+
+        </div>
+        <div class="col-md-4 order-md-2 mb-4">
+
+            <h4 class="mb-3">Privacy</h4>
+            <div class="custom-control custom-checkbox">
+                <input type="checkbox" class="custom-control-input" id="alias-names" checked="checked"
+                       onchange="check_alias()">
+                <label class="custom-control-label" for="alias-names">Use alias for usernames</label>
+            </div>
+            <div class="custom-control custom-checkbox">
+                <input type="checkbox" class="custom-control-input" id="include-url" onchange="check_alias()">
+                <label class="custom-control-label" for="include-url">Keep URLs in data</label>
+            </div>
+            <br/>
+            <br/>
+
+            <h4 class="mb-3">Markdown/HTML</h4>
+            <div class="custom-control custom-checkbox">
+                <input type="checkbox" class="custom-control-input" id="indent-replies" checked="checked">
+                <label class="custom-control-label" for="indent-replies">Indent Replies</label>
+            </div>
+            <div class="custom-control custom-checkbox">
+                <input type="checkbox" class="custom-control-input" id="include-image" checked="checked">
+                <label class="custom-control-label" for="include-image">Include Images</label>
+            </div>
+        </div>
+    </div>
+    <div class="row">
+        <div class="col-md-12 debug" id="echarts-draw" style="width: 600px;height:400px;">
+            <h1>ECHARTS</h1>
+        </div>
+    </div>
+</div>
+
+<script>
+
+    function check_alias() {
+        if ($("#alias-names").is(':checked') && $("#include-url").is(':checked')) {
+            $("#alias-names").prop("checked", false)
+        }
+    }
+
+    /**
+     * Keep same as backend schema
+     * class ExportRequest(BaseModel):
+     *      access_token: str
+     *      status_url: str
+     *      use_alias: bool = True
+     *      include_url: bool = False
+     *      include_image:bool = True
+     *      indent_replies: bool = True
+     */
+    function get_json_payload() {
+        return {
+            "access_token": $("#access-token").val(),
+            "status_url": $("#status-url").val(),
+            "use_alias": $("#alias-names").is(':checked'),
+            "include_url": $("#include-url").is(':checked'),
+            "include_image": $("#include-image").is(':checked'),
+            "indent_replies": $("#indent-replies").is(':checked'),
+        }
+    }
+
+    /**
+     * Get data
+     * @param url url
+     * @param callback_func function(res, status, xhr){}
+     */
+    function post_data(url, callback_func) {
+        $.ajax({
+            url: url,
+            type: 'POST',
+            contentType: 'application/json; charset=utf-8',
+            traditional: true,
+            data: JSON.stringify(get_json_payload()),
+            success: function (data, text_status) {
+                // Preprocess data
+                callback_func(data)
+            },
+            fail: function (xhr, text_status, error_thrown) {
+                console.error(`Failed while calling API ${url}`)
+            }
+        });
+    }
+
+    var myChart = echarts.init(document.getElementById('echarts-draw'));
+
+    /**
+     * Visualize data in tree mode
+     */
+    function visualize_tree() {
+        // console.log(get_json_payload());
+        post_data("/v1/tree/json", (data) => {
+            console.log(data);
+            myChart.setOption({
+                tooltip: {
+                    trigger: 'item',
+                    triggerOn: 'mousemove',
+                    formatter: (x) => `${x["name"]} 说：${x["value"]}`,
+                    extraCssText: 'width:400px; white-space:pre-wrap'
+                },
+                series: [
+                    {
+                        type: 'tree',
+                        data: [data],
+                        top: '1%',
+                        left: '7%',
+                        bottom: '1%',
+                        right: '20%',
+                        symbolSize: 10,
+                        label: {
+                            position: 'left',
+                            verticalAlign: 'middle',
+                            align: 'right',
+                            fontSize: 10
+                        },
+                        leaves: {
+                            label: {
+                                position: 'right',
+                                verticalAlign: 'middle',
+                                align: 'left'
+                            }
+                        },
+                        expandAndCollapse: false,
+                        animationDuration: 550,
+                        animationDurationUpdate: 750
+                    }
+                ]
+            });
+        })
+    }
+
+
+</script>
+</body>
+</html>
