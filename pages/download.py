@@ -19,6 +19,7 @@ if __name__ == '__main__':
         "echarts.min.js": "https://cdnjs.cloudflare.com/ajax/libs/echarts/5.0.0/echarts.min.js",
         "github-markdown.min.css": "https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/4.0.0/github-markdown.min.css",
     }.items():
+        print(f"Downloading {url} -> {fn}")
         resp = requests.get(url)
         resp.raise_for_status()
         with open(os.path.join(target_path, fn), "wb") as fp:

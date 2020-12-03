@@ -181,17 +181,18 @@ def sort_out_timeline(status_content, replies):
         (str(r["in_reply_to_id"]), MastodonToot.create(r))
         for r in replies
     ]
+    virtual_user = MastodonUser(
+        MASK_STR,
+        MASK_STR,
+        MASK_STR
+    )
     replies_toot.sort(key=lambda t: t[1].tick.timestamp())
     for reply_to_id, toot in replies_toot:
         if reply_to_id not in toot_pool:
             mock_toot = MastodonToot(
                 reply_to_id,
                 "DELETED TOOT",
-                MastodonUser(
-                    MASK_STR,
-                    MASK_STR,
-                    MASK_STR
-                ),
+                virtual_user,
                 tick=datetime.datetime(1970, 1, 1, 0, 0, 0)
             )
             toot_pool[reply_to_id] = mock_toot
