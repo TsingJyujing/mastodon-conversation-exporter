@@ -1,5 +1,6 @@
 import datetime
 import json
+import re
 from typing import Callable
 
 import numpy
@@ -158,6 +159,13 @@ class NameAlias:
         self._name_pool = dict()
         self._name_set = set()
 
+    def set_alias(self, uid: str, alias: str):
+        if alias not in self._name_set:
+            self._name_set.add(alias)
+            self._name_pool[uid] = alias
+        else:
+            raise KeyError(f"Alias {alias} already existed.")
+
     def alias_name(self, uid: str) -> str:
         if uid in self._name_pool:
             return self._name_pool[uid]
@@ -169,6 +177,12 @@ class NameAlias:
             self._name_set.add(alias)
             self._name_pool[uid] = alias
             return alias
+
+    def process_content(self, content: str):
+        mentioned_ids = set(re.findall("@([0-9a-zA-Z]+)\s", content))
+        for uid in mentioned_ids:
+            content = content.replace(f"@{uid}", f"@{self.alias_name(uid)}")
+        return content
 
     @staticmethod
     def create_en() -> "NameAlias":

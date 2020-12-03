@@ -18,6 +18,8 @@ logging.basicConfig(level=logging.INFO)
 
 app = FastAPI()
 
+MASK_STR = "!!!!"
+
 
 class ExportRequest(BaseModel):
     access_token: str
@@ -94,14 +96,7 @@ class MastodonToot:
         :param name_alias:
         :return:
         """
-        if name_alias is not None:
-            mentioned_ids = set(re.findall("@([a-zA-Z]+)\s", self.content))
-            content = self.content
-            for uid in mentioned_ids:
-                content = content.replace(f"@{uid}", f"@{name_alias.alias_name(uid)}")
-        else:
-            content = self.content
-
+        content = name_alias.process_content(self.content) if name_alias is not None else self.content
         node = {
             "name": name_alias.alias_name(self.user.user_id) if name_alias is not None else self.user.nickname,
             "value": content,
@@ -134,10 +129,7 @@ class MastodonToot:
             raise Exception("Name aliasing is meaningless while included URL")
         if name_alias is not None:
             display_name = name_alias.alias_name(self.user.user_id)
-            mentioned_ids = set(re.findall("@([a-zA-Z]+)\s", self.content))
-            content = self.content
-            for uid in mentioned_ids:
-                content = content.replace(f"@{uid}", f"@{name_alias.alias_name(uid)}")
+            content = name_alias.process_content(self.content)
         else:
             display_name = self.user.nickname
             content = self.content
@@ -169,7 +161,7 @@ class MastodonToot:
     @staticmethod
     def create(obj) -> "MastodonToot":
         return MastodonToot(
-            obj["id"],
+            str(obj["id"]),
             content=BeautifulSoup(obj["content"], "html.parser").get_text(),
             user=MastodonUser.create(obj["account"]),
             tick=obj["created_at"],
@@ -186,11 +178,24 @@ def sort_out_timeline(status_content, replies):
     root_toot = MastodonToot.create(status_content)
     toot_pool[root_toot.toot_id] = root_toot
     replies_toot = [
-        (r["in_reply_to_id"], MastodonToot.create(r))
+        (str(r["in_reply_to_id"]), MastodonToot.create(r))
         for r in replies
     ]
     replies_toot.sort(key=lambda t: t[1].tick.timestamp())
     for reply_to_id, toot in replies_toot:
+        if reply_to_id not in toot_pool:
+            mock_toot = MastodonToot(
+                reply_to_id,
+                "DELETED TOOT",
+                MastodonUser(
+                    MASK_STR,
+                    MASK_STR,
+                    MASK_STR
+                ),
+                tick=datetime.datetime(1970, 1, 1, 0, 0, 0)
+            )
+            toot_pool[reply_to_id] = mock_toot
+            root_toot.append_reply(mock_toot)
         toot_pool[reply_to_id].append_reply(toot)
         toot_pool[toot.toot_id] = toot
     return root_toot
@@ -205,9 +210,12 @@ def load_toot_from_config(status_url: str, access_token: str) -> MastodonToot:
     )
 
 
+# noinspection PyUnusedLocal
 @lru_cache(maxsize=128)
 def named_alias_cache(status_url: str, access_token: str, language: str) -> NameAlias:
-    return NameAlias.create(language)
+    named_alias = NameAlias.create(language)
+    named_alias.set_alias(MASK_STR, MASK_STR)
+    return named_alias
 
 
 @app.get("/")
