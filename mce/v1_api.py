@@ -1,16 +1,18 @@
 import datetime
 import logging
 import re
-from typing import List
+from functools import lru_cache
+from typing import List, Optional
 from urllib.parse import urlparse
 
+import markdown
 from bs4 import BeautifulSoup
 from fastapi import FastAPI
 from mastodon import Mastodon
 from pydantic import BaseModel
-from starlette.responses import RedirectResponse
+from starlette.responses import RedirectResponse, Response, PlainTextResponse
 
-from mce.utils import NameAlias
+from mce.utils import NameAlias, dump_json
 
 logging.basicConfig(level=logging.INFO)
 
@@ -24,18 +26,18 @@ class ExportRequest(BaseModel):
     include_url: bool = False
     include_image: bool = False
     indent_replies: bool = True
+    alias_language: str = "en"
 
 
 class MastodonClient:
-    def __init__(self, export_request: ExportRequest):
-        self.export_request = export_request
-        url_parsed = urlparse(export_request.status_url)
+    def __init__(self, status_url: str, access_token: str):
+        url_parsed = urlparse(status_url)
         self.mastodon = Mastodon(
             api_base_url="{}://{}".format(
                 url_parsed.scheme,
                 url_parsed.hostname
             ),
-            access_token=export_request.access_token
+            access_token=access_token
         )
         self.status_id = re.findall("web/statuses/(\d+)", url_parsed.path)[0]
 
@@ -78,7 +80,7 @@ class MastodonToot:
         else:
             self.images_urls = []
         self.tick = tick
-        self.replies = []
+        self.replies: List[MastodonToot] = []
         self.user = user
         self.toot_id = toot_id
 
@@ -86,7 +88,12 @@ class MastodonToot:
         self.replies.append(toot)
         self.replies.sort(key=lambda t: t.tick.timestamp())
 
-    def tree_json(self, name_alias: NameAlias = None):
+    def tree_json(self, name_alias: Optional[NameAlias] = None):
+        """
+        Generate tree data JSON for echarts
+        :param name_alias:
+        :return:
+        """
         if name_alias is not None:
             mentioned_ids = set(re.findall("@([a-zA-Z]+)\s", self.content))
             content = self.content
@@ -99,18 +106,71 @@ class MastodonToot:
             "name": name_alias.alias_name(self.user.user_id) if name_alias is not None else self.user.nickname,
             "value": content,
         }
-        if len(self.replies):
+        if len(self.replies) > 0:
             node["children"] = [
                 r.tree_json(name_alias)
                 for r in self.replies
             ]
         return node
 
+    def markdown(
+            self,
+            indent: bool,
+            include_url: bool,
+            include_image: bool,
+            name_alias: Optional[NameAlias] = None,
+            indent_level: int = 0
+    ):
+        """
+        Generate Markdown text
+        :param indent:
+        :param include_url:
+        :param include_image:
+        :param name_alias:
+        :param indent_level:
+        :return:
+        """
+        if include_url and name_alias is not None:
+            raise Exception("Name aliasing is meaningless while included URL")
+        if name_alias is not None:
+            display_name = name_alias.alias_name(self.user.user_id)
+            mentioned_ids = set(re.findall("@([a-zA-Z]+)\s", self.content))
+            content = self.content
+            for uid in mentioned_ids:
+                content = content.replace(f"@{uid}", f"@{name_alias.alias_name(uid)}")
+        else:
+            display_name = self.user.nickname
+            content = self.content
+
+        if include_image:
+            for images_url in self.images_urls:
+                content += f" <br> ![]({images_url}) "
+
+        if include_url:
+            display_name = "[{}]({})".format(display_name, self.user.user_page_url)
+
+        markdown_text = "{} {} : {} <br><br> \n".format(
+            ">" * indent_level if indent else "",
+            display_name,
+            content
+        )
+
+        if len(self.replies) > 0:
+            for child in self.replies:
+                markdown_text += child.markdown(
+                    indent,
+                    include_url,
+                    include_image,
+                    name_alias,
+                    indent_level + 1
+                )
+        return markdown_text
+
     @staticmethod
     def create(obj) -> "MastodonToot":
         return MastodonToot(
             obj["id"],
-            content=BeautifulSoup(obj["content"]).get_text(),
+            content=BeautifulSoup(obj["content"], "html.parser").get_text(),
             user=MastodonUser.create(obj["account"]),
             tick=obj["created_at"],
             images_urls=[
@@ -136,6 +196,20 @@ def sort_out_timeline(status_content, replies):
     return root_toot
 
 
+@lru_cache(maxsize=128)
+def load_toot_from_config(status_url: str, access_token: str) -> MastodonToot:
+    mc = MastodonClient(status_url, access_token)
+    return sort_out_timeline(
+        mc.status,
+        mc.replies
+    )
+
+
+@lru_cache(maxsize=128)
+def named_alias_cache(status_url: str, access_token: str, language: str) -> NameAlias:
+    return NameAlias.create(language)
+
+
 @app.get("/")
 async def homepage():
     """
@@ -144,14 +218,77 @@ async def homepage():
     return RedirectResponse("docs")
 
 
+@app.post("/export/markdown")
+async def generate_raw_json(export_config: ExportRequest):
+    return PlainTextResponse(
+        content=load_toot_from_config(
+            export_config.status_url,
+            export_config.access_token
+        ).markdown(
+            export_config.indent_replies,
+            export_config.include_url,
+            export_config.include_image,
+            named_alias_cache(
+                export_config.status_url,
+                export_config.access_token,
+                export_config.alias_language
+            ) if export_config.use_alias else None,
+        ),
+        media_type="text/markdown"
+    )
+
+
+@app.post("/export/html")
+async def generate_raw_json(export_config: ExportRequest):
+    return PlainTextResponse(
+        content=markdown.markdown(
+            load_toot_from_config(
+                export_config.status_url,
+                export_config.access_token
+            ).markdown(
+                export_config.indent_replies,
+                export_config.include_url,
+                export_config.include_image,
+                named_alias_cache(
+                    export_config.status_url,
+                    export_config.access_token,
+                    export_config.alias_language
+                ) if export_config.use_alias else None,
+            )
+        ),
+        media_type="text/html"
+    )
+
+
+@app.post("/export/json")
+async def generate_raw_json(export_config: ExportRequest):
+    mc = MastodonClient(
+        export_config.status_url,
+        export_config.access_token
+    )
+    return Response(
+        content=dump_json({
+            "status": mc.status,
+            "replies": mc.replies
+        }).encode(),
+        media_type="application/json"
+    )
+
+
 @app.post("/tree/json")
-async def generate_graph_json(export_config: ExportRequest):
+async def generate_tree_json(export_config: ExportRequest):
     """
     Generate JSON for
     :param export_config:
     :return:
     """
-    mc = MastodonClient(export_config)
-    root_toot = sort_out_timeline(mc.status, mc.replies)
-    tree_data = root_toot.tree_json(NameAlias() if export_config.use_alias else None)
-    return tree_data
+    return load_toot_from_config(
+        export_config.status_url,
+        export_config.access_token
+    ).tree_json(
+        named_alias_cache(
+            export_config.status_url,
+            export_config.access_token,
+            export_config.alias_language
+        ) if export_config.use_alias else None
+    )

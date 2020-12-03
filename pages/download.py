@@ -16,9 +16,9 @@ if __name__ == '__main__':
         "jquery.min.js": "https://code.jquery.com/jquery-3.5.1.min.js",
         "bootstrap.min.css": "https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.5.3/css/bootstrap.min.css",
         "bootstrap.min.js": "https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.5.3/js/bootstrap.min.js",
-        "echarts.min.js": "https://cdnjs.cloudflare.com/ajax/libs/echarts/5.0.0/echarts.min.js"
+        "echarts.min.js": "https://cdnjs.cloudflare.com/ajax/libs/echarts/5.0.0/echarts.min.js",
+        "github-markdown.min.css": "https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/4.0.0/github-markdown.min.css",
     }.items():
-
         resp = requests.get(url)
         resp.raise_for_status()
         with open(os.path.join(target_path, fn), "wb") as fp:

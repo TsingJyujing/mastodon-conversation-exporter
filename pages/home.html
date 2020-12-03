@@ -7,11 +7,7 @@
     <script src="static/jquery.min.js"></script>
     <script src="static/bootstrap.min.js"></script>
     <script src="static/echarts.min.js"></script>
-    <style>
-        .debug {
-            background-color: lightblue;
-        }
-    </style>
+    <link rel="stylesheet" href="static/github-markdown.min.css">
 </head>
 <body>
 <div class="container">
@@ -55,11 +51,17 @@
             </div>
 
             <div class="row">
-                <div class="col-md-12">
-                    <button class="btn btn-primary">Export JSON</button>
-                    <button class="btn btn-primary">Export Markdown</button>
-                    <button class="btn btn-primary">Export HTML</button>
+                <div class="col-md-12 mb-4">
+                    <button class="btn btn-primary" onclick="download_markdown()">Export Markdown</button>
+                    <button class="btn btn-primary" onclick="download_html()">Export HTML</button>
                     <button class="btn btn-primary" onclick="visualize_tree()">Visualize Tree</button>
+                    <button class="btn btn-primary" onclick="visualize_text()">Visualize Text</button>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-12 mb-4">
+                    <button class="btn btn-primary " onclick="download_raw_json()">Export Raw JSON</button>
+                    <button class="btn btn-primary " onclick="download_tree_json()">Download Tree JSON</button>
                 </div>
             </div>
 
@@ -77,6 +79,13 @@
                 <label class="custom-control-label" for="include-url">Keep URLs in data</label>
             </div>
             <br/>
+            <div class="custom-control">
+                <label for="alias-lang">Alias Name Language</label>
+                <select class="custom-select d-block w-100" id="alias-lang" required="">
+                    <option value="zh">Simplified Chinese</option>
+                    <option value="en">English</option>
+                </select>
+            </div>
             <br/>
 
             <h4 class="mb-3">Markdown/HTML</h4>
@@ -85,44 +94,60 @@
                 <label class="custom-control-label" for="indent-replies">Indent Replies</label>
             </div>
             <div class="custom-control custom-checkbox">
-                <input type="checkbox" class="custom-control-input" id="include-image" checked="checked">
+                <input type="checkbox" class="custom-control-input" id="include-image">
                 <label class="custom-control-label" for="include-image">Include Images</label>
             </div>
         </div>
     </div>
     <div class="row">
-        <div class="col-md-12 debug" id="echarts-draw" style="width: 600px;height:400px;">
-            <h1>ECHARTS</h1>
+        <h4 class="mb-3">Tree Visualize</h4>
+        <div class="col-md-12" id="echarts-draw">
+        </div>
+    </div>
+    <div class="row">
+        <h4 class="mb-3">HTML Viewer</h4>
+        <div class="col-md-12">
+            <article class="markdown-body" id="html-viewer">
+                <h2>Rendered HTML will be displayed here</h2>
+            </article>
         </div>
     </div>
 </div>
 
 <script>
 
-    function check_alias() {
-        if ($("#alias-names").is(':checked') && $("#include-url").is(':checked')) {
-            $("#alias-names").prop("checked", false)
-        }
+    /**
+     * Get checkbox's status
+     * @param element_id checkbox's ID
+     */
+    function is_checked(element_id) {
+        return $(`#${element_id}`).is(':checked');
     }
 
     /**
+     * Since we can't keep privacy if user want to include URL
+     * So uncheck `alias-names` if `include-url` is checked
+     */
+    function check_alias() {
+        if (is_checked("alias-names") && is_checked("include-url")) {
+            $("#alias-names").prop("checked", false);
+        }
+    }
+
+
+    /**
      * Keep same as backend schema
-     * class ExportRequest(BaseModel):
-     *      access_token: str
-     *      status_url: str
-     *      use_alias: bool = True
-     *      include_url: bool = False
-     *      include_image:bool = True
-     *      indent_replies: bool = True
+     * Reference the ExportRequest(BaseModel) in backend code
      */
     function get_json_payload() {
         return {
             "access_token": $("#access-token").val(),
             "status_url": $("#status-url").val(),
-            "use_alias": $("#alias-names").is(':checked'),
-            "include_url": $("#include-url").is(':checked'),
-            "include_image": $("#include-image").is(':checked'),
-            "indent_replies": $("#indent-replies").is(':checked'),
+            "use_alias": is_checked("alias-names"),
+            "include_url": is_checked("include-url"),
+            "include_image": is_checked("include-image"),
+            "indent_replies": is_checked("indent-replies"),
+            "alias_language": $("#alias-lang").val(),
         }
     }
 
@@ -148,20 +173,97 @@
         });
     }
 
-    var myChart = echarts.init(document.getElementById('echarts-draw'));
+    /**
+     * Create and download file
+     * @param file_name
+     * @param content
+     */
+    function download_content(file_name, content) {
+        var a_tag = document.createElement('a');
+        a_tag.download = file_name;
+        a_tag.href = URL.createObjectURL(
+            new Blob([content])
+        );
+        a_tag.click();
+        URL.revokeObjectURL(blob);
+    }
+
+    function visualize_text() {
+        if (!is_checked("alias-names")) {
+            alert("You haven't chose alias users' names, please be careful while sharing!")
+        }
+        const html_viewer = $("#html-viewer")
+        html_viewer.empty();
+        post_data("/v1/export/html", (data) => {
+            html_viewer.append($.parseHTML(data))
+        });
+    }
+
+    /**
+     * Download HTML format of conversation
+     */
+    function download_html() {
+        if (!is_checked("alias-names")) {
+            alert("You haven't chose alias users' names, please be careful while sharing!")
+        }
+        post_data("/v1/export/html", (data) => {
+            download_content("export.html", data)
+        });
+    }
+
+    /**
+     * Download markdown format of conversation
+     */
+    function download_markdown() {
+        if (!is_checked("alias-names")) {
+            alert("You haven't chose alias users' names, please be careful while sharing!")
+        }
+        post_data("/v1/export/markdown", (data) => {
+            download_content("export.md", data)
+        });
+    }
+
+    /**
+     * Just download the data for tree view
+     */
+    function download_raw_json() {
+        alert("Raw data included lot's of privacy information, please be careful while sharing!");
+        post_data("/v1/export/json", (data) => {
+            download_content("raw.json", JSON.stringify(data, null, 2))
+        });
+    }
+
+    var myChart = null;
+
+    /**
+     * Just download the data for tree view
+     */
+    function download_tree_json() {
+        if (!is_checked("alias-names")) {
+            alert("You haven't chose alias users' names, please be careful while sharing!")
+        }
+        post_data("/v1/tree/json", (data) => {
+            download_content("tree.json", JSON.stringify(data, null, 2))
+        });
+    }
 
     /**
      * Visualize data in tree mode
      */
     function visualize_tree() {
-        // console.log(get_json_payload());
+        if (!is_checked("alias-names")) {
+            alert("You haven't chose alias users' names, please be careful while sharing!")
+        }
+        $('#echarts-draw').css({height: "400px"});
+        if (myChart === null) {
+            myChart = echarts.init(document.getElementById('echarts-draw'));
+        }
         post_data("/v1/tree/json", (data) => {
-            console.log(data);
             myChart.setOption({
                 tooltip: {
                     trigger: 'item',
                     triggerOn: 'mousemove',
-                    formatter: (x) => `${x["name"]} 说：${x["value"]}`,
+                    formatter: (x) => `${x["name"]}：${x["value"]}`,
                     extraCssText: 'width:400px; white-space:pre-wrap'
                 },
                 series: [

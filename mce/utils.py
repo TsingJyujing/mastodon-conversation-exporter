@@ -1,5 +1,6 @@
 import datetime
 import json
+from typing import Callable
 
 import numpy
 
@@ -152,7 +153,7 @@ def dump_json(item, indent: int = 2):
 
 
 class NameAlias:
-    def __init__(self, name_generator=generate_random_name_zh):
+    def __init__(self, name_generator: Callable[[], str]):
         self.name_generator = name_generator
         self._name_pool = dict()
         self._name_set = set()
@@ -168,3 +169,24 @@ class NameAlias:
             self._name_set.add(alias)
             self._name_pool[uid] = alias
             return alias
+
+    @staticmethod
+    def create_en() -> "NameAlias":
+        return NameAlias(
+            generate_random_name_en
+        )
+
+    @staticmethod
+    def create_zh() -> "NameAlias":
+        return NameAlias(
+            generate_random_name_zh
+        )
+
+    @staticmethod
+    def create(lang: str) -> "NameAlias":
+        if lang.lower() == "en":
+            return NameAlias.create_en()
+        elif lang.lower() == "zh":
+            return NameAlias.create_zh()
+        else:
+            raise KeyError(f"Can't find language {lang}")
